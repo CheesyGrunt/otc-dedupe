@@ -10,6 +10,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="insert.js"></script>
 <style>
 /* Layout: one working column. Drop zone, ID controls, tally strip, then the updated list. */
 :root{
@@ -69,6 +71,15 @@ tr.dupe td.idcol{color:var(--cut)}
 .sample{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;background:var(--gold-soft);color:var(--gold);padding:3px 8px;border-radius:3px}
 .toast{min-height:1.4em;font-family:var(--mono);font-size:13px;color:var(--gold)}
 .toast.err{color:var(--cut)}
+h2{font-family:var(--display);font-size:20px;letter-spacing:.03em;color:var(--gray);margin:0;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+h2 .step{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+.stage{display:grid;gap:14px}
+.stage + .stage{border-top:1px solid var(--line);padding-top:22px}
+input[type="date"]{font:inherit;font-size:16px;padding:6px 10px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--ink)}
+.warn{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.warn li{background:var(--cut-soft);color:var(--ink);border-left:3px solid var(--cut);padding:8px 12px;border-radius:0 4px 4px 0;font-size:15.5px}
+.rules{font-size:15px;color:var(--muted);margin:0;max-width:75ch}
+td.sf{font-family:var(--mono);font-size:13px}
 footer{text-align:center;font-family:var(--display);font-size:13px;letter-spacing:.18em;color:var(--muted);padding-top:8px;border-top:1px solid var(--line)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -80,6 +91,8 @@ footer{text-align:center;font-family:var(--display);font-size:13px;letter-spacin
     <p class="sub">Drop in the Daily OTC Creations export. Every repeat of a Contact ID comes out, and you get back one clean list to download or paste.</p>
   </header>
 
+  <section class="stage">
+  <h2><span class="step">Step 1</span>Remove duplicate IDs</h2>
   <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose or drop an Excel file">
     <strong>Drop the Excel file here</strong>
     <span>or click to choose a file &middot; .xlsx, .xls, or .csv</span>
@@ -126,6 +139,24 @@ footer{text-align:center;font-family:var(--display);font-size:13px;letter-spacin
     <p class="note" id="note"></p>
     <div class="toast" id="toast" role="status"></div>
   </div>
+  </section>
+
+  <section class="stage">
+    <h2><span class="step">Step 2</span>Salesforce insert file</h2>
+    <p class="rules">Built from the updated list in your OTC Add Only layout. Row 1 keeps your notes and row 2 keeps the API names. Names come out as One Time Care Package Support: First Name Last Initial. Program ID, RecordType ID, and the other Don&rsquo;t Change columns stay fixed.</p>
+    <div class="controls">
+      <div class="field">
+        <label for="startDate">Start date (pmdm__StartDate__c)</label>
+        <input type="date" id="startDate">
+      </div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="sfBtn">Download Salesforce insert file</button>
+      </div>
+    </div>
+    <ul class="warn" id="sfWarn"></ul>
+    <div class="tablebox"><table id="sfGrid"></table></div>
+    <div class="toast" id="sfToast" role="status"></div>
+  </section>
 
   <footer>Mischief managed.</footer>
 </div>
@@ -203,6 +234,35 @@ footer{text-align:center;font-family:var(--display);font-size:13px;letter-spacin
       : "Removing every row whose " + colName + " shows up more than once.")
       + (blanks ? " " + blanks + " row" + (blanks>1?"s":"") + " with a blank ID stayed in." : "");
     render();
+    renderInsert();
+  }
+
+  function pad(n){ return (n < 10 ? "0" : "") + n; }
+  (function(){ var d = new Date(); $("startDate").value = d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()); })();
+
+  function insertData(){
+    return OTCInsert.buildRows(state.header, state.result.kept.map(function(x){ return x.r; }));
+  }
+
+  function renderInsert(){
+    var data = insertData(), g = $("sfGrid"), w = $("sfWarn");
+    w.innerHTML = "";
+    data.warnings.forEach(function(msg){ var li = document.createElement("li"); li.textContent = msg; w.appendChild(li); });
+    g.innerHTML = "";
+    var cols = ["Name", "pmdm__StartDate__c", "Branch_of_Service__c", "pmdm__Contact__c"];
+    var thead = document.createElement("thead"), tr = document.createElement("tr");
+    cols.forEach(function(c){ var th = document.createElement("th"); th.textContent = c; tr.appendChild(th); });
+    thead.appendChild(tr); g.appendChild(thead);
+    var tb = document.createElement("tbody"), sd = $("startDate").value;
+    data.items.forEach(function(it){
+      var row = document.createElement("tr");
+      [it.name, sd, it.branch, it.contact].forEach(function(v, i){
+        var td = document.createElement("td"); td.textContent = v; if (i) td.className = "sf"; td.title = v; row.appendChild(td);
+      });
+      tb.appendChild(row);
+    });
+    g.appendChild(tb);
+    $("sfBtn").textContent = "Download Salesforce insert file (" + data.items.length + " rows)";
   }
 
   function render(){
@@ -280,16 +340,39 @@ footer{text-align:center;font-family:var(--display);font-size:13px;letter-spacin
 
   var downloadsP = (window.claude && typeof window.claude.use === "function") ? window.claude.use("downloads").catch(function(){ return null; }) : Promise.resolve(null);
 
-  $("dlBtn").addEventListener("click", function(){
-    var wb = buildWorkbook(), name = outName();
+  // Saves a file in a normal browser, or through the viewer's save prompt inside Claude.
+  function saveBlob(name, blob, say){
     var inClaude = !!(window.claude && typeof window.claude.use === "function");
-    if (!inClaude){ XLSX.writeFile(wb, name); toast("Downloaded " + name + "."); return; }
+    if (!inClaude){
+      var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+      say("Downloaded " + name + "."); return;
+    }
     downloadsP.then(function(dl){
-      if (!dl){ toast("Downloads are not available in this view. Use Copy list instead.", true); return; }
-      var buf = XLSX.write(wb, {type:"array", bookType:"xlsx"});
-      dl.save({filename:name, data:new Blob([buf])}).then(function(){ toast("Saved " + name + "."); })
-        .catch(function(e){ toast(e && e.code === "declined" ? "Download canceled." : "The download did not go through. Try again, or use Copy list.", e && e.code !== "declined"); });
+      if (!dl){ say("Downloads are not available in this view.", true); return; }
+      dl.save({filename:name, data:blob}).then(function(){ say("Saved " + name + "."); })
+        .catch(function(e){ say(e && e.code === "declined" ? "Download canceled." : "The download did not go through. Try again.", e && e.code !== "declined"); });
     });
+  }
+  var XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  $("dlBtn").addEventListener("click", function(){
+    var buf = XLSX.write(buildWorkbook(), {type:"array", bookType:"xlsx"});
+    saveBlob(outName(), new Blob([buf], {type:XLSX_TYPE}), toast);
+  });
+
+  function sfToast(msg, err){ var t = $("sfToast"); t.textContent = msg; t.className = "toast" + (err ? " err" : ""); }
+  $("startDate").addEventListener("change", renderInsert);
+  $("sfBtn").addEventListener("click", function(){
+    var sd = $("startDate").value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(sd)){ sfToast("Pick a start date first.", true); return; }
+    var data = insertData();
+    if (!data.items.length){ sfToast("There are no rows to insert yet. Drop in the OTC export above.", true); return; }
+    OTCInsert.buildWorkbook(ExcelJS, data.items, sd).xlsx.writeBuffer().then(function(buf){
+      var name = (state.sample ? "EXAMPLE - " : "") + "Inserting for Sales Force - OTC Add Only - " + sd + ".xlsx";
+      saveBlob(name, new Blob([buf], {type:XLSX_TYPE}), sfToast);
+    }).catch(function(){ sfToast("Could not build the insert file. Reload the page and try again.", true); });
   });
 
   $("copyBtn").addEventListener("click", function(){
