@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
+<title>OTC Dedupe</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: one working column. Drop zone, ID controls, tally strip, then the updated list. */
+:root{
+  --bg:#F3F3F1; --panel:#FFFFFF; --ink:#22262A; --muted:#666D73; --line:#D5D7D6;
+  --gray:#4A5258; --gold:#A8822E; --gold-soft:#F3EAD6; --cut:#9B3B2E; --cut-soft:#F6E4E0;
+  --display:"Cinzel","Trajan Pro",Georgia,serif;
+  --body:"EB Garamond",Garamond,Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#181B1E; --panel:#22262A; --ink:#ECEBE6; --muted:#A3A9AD; --line:#3A4045;
+  --gray:#C2C7CA; --gold:#D4AE5C; --gold-soft:#3A3122; --cut:#E08575; --cut-soft:#3C2622; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#181B1E; --panel:#22262A; --ink:#ECEBE6; --muted:#A3A9AD; --line:#3A4045;
+  --gray:#C2C7CA; --gold:#D4AE5C; --gold-soft:#3A3122; --cut:#E08575; --cut-soft:#3C2622; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.5}
+.wrap{max-width:1040px;margin:0 auto;padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px}
+header{display:grid;gap:4px;border-bottom:2px solid var(--gold);padding-bottom:14px}
+.kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(28px,5vw,40px);margin:0;color:var(--gray);letter-spacing:.03em;text-wrap:balance}
+.sub{margin:0;color:var(--muted);max-width:62ch}
+.drop{border:2px dashed var(--line);border-radius:6px;background:var(--panel);padding:26px 20px;display:grid;gap:8px;justify-items:center;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop:focus-visible,.drop.over{border-color:var(--gold);background:var(--gold-soft);outline:none}
+.drop strong{font-family:var(--display);font-size:19px;color:var(--gray);letter-spacing:.02em}
+.drop span{color:var(--muted);font-size:15px}
+.file{font-family:var(--mono);font-size:13px;color:var(--ink);word-break:break-all}
+.controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:end}
+.field{display:grid;gap:4px;min-width:0}
+.field label,.lbl{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+select{font:inherit;font-size:16px;padding:7px 10px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--ink);max-width:100%}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--panel)}
+.seg button{font:inherit;font-size:15px;padding:7px 12px;border:0;background:transparent;color:var(--ink);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--gray);color:var(--bg)}
+.tally{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.tally div{background:var(--panel);padding:12px 14px;display:grid;gap:2px}
+.tally b{font-family:var(--mono);font-weight:500;font-size:26px;font-variant-numeric:tabular-nums}
+.tally .cut b{color:var(--cut)} .tally .keep b{color:var(--gold)}
+@media (max-width:560px){.tally{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.tabs{display:flex;gap:4px}
+.tabs button{font-family:var(--mono);font-size:13px;letter-spacing:.06em;padding:7px 12px;border:1px solid var(--line);border-bottom:0;border-radius:4px 4px 0 0;background:transparent;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--panel);color:var(--ink);border-color:var(--gold)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.btn{font-family:var(--mono);font-size:13px;letter-spacing:.05em;padding:9px 14px;border-radius:4px;border:1px solid var(--gray);background:transparent;color:var(--gray);cursor:pointer}
+.btn.primary{background:var(--gold);border-color:var(--gold);color:#1B1A17}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible,.tabs button:focus-visible,.seg button:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.tablebox{background:var(--panel);border:1px solid var(--line);border-radius:0 6px 6px 6px;overflow:auto;max-height:62vh;min-width:0}
+table{border-collapse:collapse;font-size:14.5px;width:max-content;min-width:100%}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+th{position:sticky;top:0;background:var(--panel);font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;box-shadow:0 1px 0 var(--line)}
+td.idcol{font-family:var(--mono);font-size:13px;color:var(--gold)}
+td.n{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+tr.dupe td.idcol{color:var(--cut)}
+.note{font-size:15px;color:var(--muted);margin:0}
+.sample{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;background:var(--gold-soft);color:var(--gold);padding:3px 8px;border-radius:3px}
+.toast{min-height:1.4em;font-family:var(--mono);font-size:13px;color:var(--gold)}
+.toast.err{color:var(--cut)}
+footer{text-align:center;font-family:var(--display);font-size:13px;letter-spacing:.18em;color:var(--muted);padding-top:8px;border-top:1px solid var(--line)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="kicker">Soldiers' Angels &middot; Virtual Services</div>
+    <h1>OTC Dedupe</h1>
+    <p class="sub">Drop in the Daily OTC Creations export. Every repeat of a Contact ID comes out, and you get back one clean list to download or paste.</p>
+  </header>
+
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose or drop an Excel file">
+    <strong>Drop the Excel file here</strong>
+    <span>or click to choose a file &middot; .xlsx, .xls, or .csv</span>
+    <div class="file" id="fileName"></div>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+  </div>
+
+  <div class="controls">
+    <div class="field">
+      <label for="idCol">ID column</label>
+      <select id="idCol"></select>
+    </div>
+    <div class="field">
+      <span class="lbl" id="modeLbl">When an ID repeats</span>
+      <div class="seg" role="group" aria-labelledby="modeLbl">
+        <button type="button" id="modeFirst" aria-pressed="true">Keep the first row</button>
+        <button type="button" id="modeDrop" aria-pressed="false">Drop all its rows</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tally" aria-live="polite">
+    <div><span class="lbl">Rows in</span><b id="tIn">0</b></div>
+    <div class="keep"><span class="lbl">Rows kept</span><b id="tOut">0</b></div>
+    <div class="cut"><span class="lbl">Rows removed</span><b id="tCut">0</b></div>
+    <div><span class="lbl">IDs that repeated</span><b id="tIds">0</b></div>
+  </div>
+
+  <div>
+    <div class="bar">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tabKept" aria-selected="true">Updated list</button>
+        <button type="button" role="tab" id="tabCut" aria-selected="false">Removed rows</button>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="copyBtn">Copy list</button>
+        <button type="button" class="btn primary" id="dlBtn">Download updated Excel</button>
+      </div>
+    </div>
+    <div class="tablebox"><table id="grid"></table></div>
+  </div>
+
+  <div class="bar">
+    <p class="note" id="note"></p>
+    <div class="toast" id="toast" role="status"></div>
+  </div>
+
+  <footer>Mischief managed.</footer>
+</div>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { name:"", sheetName:"Sheet1", header:[], rows:[], idIdx:-1, mode:"first", tab:"kept", sample:true, result:null };
+
+  // Fictional example rows so the page shows what it does before a file is dropped.
+  var SAMPLE_HEADER = ["Service Delivery Name","Report By Date","Created Date","Client: Contact ID","Program Engagement Name","Branch of Service","Status","Client: Full Name","Program: Program Name"];
+  var SAMPLE_ROWS = [
+    ["Card/Letter for Sample Hero","11/13/2026","10/13/2026","003EXAMPLE0001","Deployed Adoption: Sample H.","Marines","Assigned","Sample Hero","Deployed Adoption"],
+    ["Card/Letter for Sample Hero","11/13/2026","10/13/2026","003EXAMPLE0001","Deployed Adoption: Sample H.","Marines","Assigned","Sample Hero","Deployed Adoption"],
+    ["Care Package for Sample Hero","11/13/2026","10/13/2026","003EXAMPLE0001","Deployed Adoption: Sample H.","Marines","Assigned","Sample Hero","Deployed Adoption"],
+    ["Card/Letter for Test Sailor","11/18/2026","10/8/2026","003EXAMPLE0002","Deployed Adoption: Test S.","Navy","Assigned","Test Sailor","Deployed Adoption"],
+    ["Adoption for Demo Airman","11/5/2026","10/5/2026","003EXAMPLE0003","Deployed Adoption: Demo A.","Air Force","Completed","Demo Airman","Deployed Adoption"],
+    ["Card/Letter for Demo Airman","11/5/2026","10/5/2026","003EXAMPLE0003","Deployed Adoption: Demo A.","Air Force","Assigned","Demo Airman","Deployed Adoption"],
+    ["Card/Letter for Mock Soldier","11/9/2026","10/4/2026","003EXAMPLE0004","Deployed Adoption: Mock S.","Army","Assigned","Mock Soldier","Deployed Adoption"]
+  ];
+
+  function show(cell){
+    if (cell instanceof Date) return (cell.getMonth()+1)+"/"+cell.getDate()+"/"+cell.getFullYear();
+    return cell == null ? "" : String(cell);
+  }
+  // Salesforce IDs are case-sensitive, so compare trimmed text only, never lowercased.
+  function key(cell){ return show(cell).trim(); }
+
+  function pickIdCol(header){
+    var best = -1, score = 0;
+    header.forEach(function(h, i){
+      var s = String(h||"").toLowerCase(), sc = 0;
+      if (/contact\s*id/.test(s)) sc = 3;
+      else if (/(^|\W)id$/.test(s) || /\bid\b/.test(s)) sc = 2;
+      if (sc > score){ score = sc; best = i; }
+    });
+    return best === -1 ? 0 : best;
+  }
+
+  function load(header, rows, name, sheetName, sample){
+    state.header = header; state.rows = rows; state.name = name; state.sheetName = sheetName || "Sheet1"; state.sample = sample;
+    state.idIdx = pickIdCol(header);
+    var sel = $("idCol"); sel.innerHTML = "";
+    header.forEach(function(h, i){
+      var o = document.createElement("option"); o.value = i; o.textContent = String(h || ("Column " + (i+1)));
+      sel.appendChild(o);
+    });
+    sel.value = state.idIdx;
+    $("fileName").innerHTML = "";
+    if (sample){ var t = document.createElement("span"); t.className = "sample"; t.textContent = "Example rows shown"; $("fileName").appendChild(t); }
+    else $("fileName").textContent = name;
+    run();
+  }
+
+  function run(){
+    var idx = state.idIdx, counts = {}, kept = [], cut = [], seen = {}, blanks = 0;
+    state.rows.forEach(function(r){ var k = key(r[idx]); if (k) counts[k] = (counts[k]||0) + 1; });
+    state.rows.forEach(function(r, i){
+      var k = key(r[idx]);
+      if (!k){ blanks++; kept.push({r:r, n:i+2}); return; }
+      var dup = counts[k] > 1;
+      if (state.mode === "drop"){ (dup ? cut : kept).push({r:r, n:i+2, dup:dup}); }
+      else if (seen[k]) cut.push({r:r, n:i+2, dup:true});
+      else { seen[k] = true; kept.push({r:r, n:i+2, dup:dup}); }
+    });
+    var repeated = Object.keys(counts).filter(function(k){ return counts[k] > 1; }).length;
+    state.result = {kept:kept, cut:cut};
+    $("tIn").textContent = state.rows.length;
+    $("tOut").textContent = kept.length;
+    $("tCut").textContent = cut.length;
+    $("tIds").textContent = repeated;
+    var colName = String(state.header[idx] || "the ID column");
+    $("note").textContent = (state.mode === "first"
+      ? "Keeping the first row for each " + colName + "."
+      : "Removing every row whose " + colName + " shows up more than once.")
+      + (blanks ? " " + blanks + " row" + (blanks>1?"s":"") + " with a blank ID stayed in." : "");
+    render();
+  }
+
+  function render(){
+    var list = state.tab === "kept" ? state.result.kept : state.result.cut;
+    var g = $("grid"); g.innerHTML = "";
+    var thead = document.createElement("thead"), tr = document.createElement("tr");
+    var th0 = document.createElement("th"); th0.textContent = "Row"; tr.appendChild(th0);
+    state.header.forEach(function(h){ var th = document.createElement("th"); th.textContent = String(h||""); tr.appendChild(th); });
+    thead.appendChild(tr); g.appendChild(thead);
+    var tb = document.createElement("tbody");
+    if (!list.length){
+      var er = document.createElement("tr"), ed = document.createElement("td");
+      ed.colSpan = state.header.length + 1; ed.textContent = state.tab === "kept" ? "No rows left." : "Nothing removed. Every ID in this file is already unique.";
+      er.appendChild(ed); tb.appendChild(er);
+    }
+    list.forEach(function(item){
+      var row = document.createElement("tr"); if (state.tab === "cut") row.className = "dupe";
+      var n = document.createElement("td"); n.className = "n"; n.textContent = item.n; row.appendChild(n);
+      state.header.forEach(function(_, i){
+        var td = document.createElement("td"); td.textContent = show(item.r[i]);
+        if (i === state.idIdx) td.className = "idcol";
+        td.title = td.textContent; row.appendChild(td);
+      });
+      tb.appendChild(row);
+    });
+    g.appendChild(tb);
+    $("tabKept").setAttribute("aria-selected", state.tab === "kept");
+    $("tabCut").setAttribute("aria-selected", state.tab === "cut");
+    $("tabKept").textContent = "Updated list (" + state.result.kept.length + ")";
+    $("tabCut").textContent = "Removed rows (" + state.result.cut.length + ")";
+  }
+
+  function toast(msg, err){ var t = $("toast"); t.textContent = msg; t.className = "toast" + (err ? " err" : ""); }
+
+  function readFile(file){
+    if (!file) return;
+    var fr = new FileReader();
+    fr.onload = function(e){
+      try {
+        var wb = XLSX.read(new Uint8Array(e.target.result), {type:"array", cellDates:true});
+        var sn = wb.SheetNames[0];
+        var aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, defval:"", raw:true, blankrows:false});
+        var h = 0; while (h < aoa.length && aoa[h].every(function(c){ return String(c).trim() === ""; })) h++;
+        if (h >= aoa.length) { toast("That file has no rows to read. Check that it is the OTC export.", true); return; }
+        var header = aoa[h], width = header.length;
+        var rows = aoa.slice(h+1).map(function(r){ var x = r.slice(0, Math.max(width, r.length)); while (x.length < width) x.push(""); return x; })
+          .filter(function(r){ return r.some(function(c){ return String(c).trim() !== ""; }); });
+        load(header, rows, file.name, sn, false);
+        toast("Loaded " + rows.length + " rows from " + file.name + ".");
+      } catch(err){ toast("Could not read that file. Save it as .xlsx and try again.", true); }
+    };
+    fr.readAsArrayBuffer(file);
+  }
+
+  function outName(){
+    var base = state.sample ? "OTC_Example" : state.name.replace(/\.[^.]+$/, "");
+    return base + "_Deduped.xlsx";
+  }
+
+  function buildWorkbook(){
+    var wb = XLSX.utils.book_new();
+    var kept = [state.header].concat(state.result.kept.map(function(x){ return x.r; }));
+    var cut = [["Original row"].concat(state.header)].concat(state.result.cut.map(function(x){ return [x.n].concat(x.r); }));
+    var ws1 = XLSX.utils.aoa_to_sheet(kept, {cellDates:true, dateNF:"m/d/yyyy"});
+    var ws2 = XLSX.utils.aoa_to_sheet(cut, {cellDates:true, dateNF:"m/d/yyyy"});
+    var widths = state.header.map(function(h, i){
+      var m = String(h||"").length; state.result.kept.forEach(function(x){ m = Math.max(m, show(x.r[i]).length); });
+      return {wch: Math.min(Math.max(m + 2, 10), 50)};
+    });
+    ws1["!cols"] = widths; ws2["!cols"] = [{wch:12}].concat(widths);
+    XLSX.utils.book_append_sheet(wb, ws1, "Updated List");
+    XLSX.utils.book_append_sheet(wb, ws2, "Removed Rows");
+    return wb;
+  }
+
+  var downloadsP = (window.claude && typeof window.claude.use === "function") ? window.claude.use("downloads").catch(function(){ return null; }) : Promise.resolve(null);
+
+  $("dlBtn").addEventListener("click", function(){
+    var wb = buildWorkbook(), name = outName();
+    var inClaude = !!(window.claude && typeof window.claude.use === "function");
+    if (!inClaude){ XLSX.writeFile(wb, name); toast("Downloaded " + name + "."); return; }
+    downloadsP.then(function(dl){
+      if (!dl){ toast("Downloads are not available in this view. Use Copy list instead.", true); return; }
+      var buf = XLSX.write(wb, {type:"array", bookType:"xlsx"});
+      dl.save({filename:name, data:new Blob([buf])}).then(function(){ toast("Saved " + name + "."); })
+        .catch(function(e){ toast(e && e.code === "declined" ? "Download canceled." : "The download did not go through. Try again, or use Copy list.", e && e.code !== "declined"); });
+    });
+  });
+
+  $("copyBtn").addEventListener("click", function(){
+    var lines = [state.header.map(show).join("\t")].concat(state.result.kept.map(function(x){ return x.r.map(show).join("\t"); }));
+    var text = lines.join("\n");
+    var fallback = function(){
+      var ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand("copy"); } catch(e){}
+      document.body.removeChild(ta);
+      toast(ok ? "Copied " + state.result.kept.length + " rows. Paste into Excel." : "Copy was blocked here. Use Download instead.", !ok);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){ toast("Copied " + state.result.kept.length + " rows. Paste into Excel."); }, fallback);
+    } else fallback();
+  });
+
+  var drop = $("drop"), input = $("fileInput");
+  drop.addEventListener("click", function(){ input.click(); });
+  drop.addEventListener("keydown", function(e){ if (e.key === "Enter" || e.key === " "){ e.preventDefault(); input.click(); } });
+  input.addEventListener("change", function(){ readFile(input.files[0]); input.value = ""; });
+  ["dragenter","dragover"].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.add("over"); }); });
+  ["dragleave","drop"].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.remove("over"); }); });
+  drop.addEventListener("drop", function(e){ if (e.dataTransfer.files.length) readFile(e.dataTransfer.files[0]); });
+  // Let a file dropped anywhere on the page work too, instead of the browser opening it.
+  window.addEventListener("dragover", function(e){ e.preventDefault(); });
+  window.addEventListener("drop", function(e){ e.preventDefault(); if (e.target !== drop && !drop.contains(e.target) && e.dataTransfer.files.length) readFile(e.dataTransfer.files[0]); });
+
+  $("idCol").addEventListener("change", function(e){ state.idIdx = +e.target.value; run(); });
+  $("modeFirst").addEventListener("click", function(){ state.mode = "first"; $("modeFirst").setAttribute("aria-pressed","true"); $("modeDrop").setAttribute("aria-pressed","false"); run(); });
+  $("modeDrop").addEventListener("click", function(){ state.mode = "drop"; $("modeDrop").setAttribute("aria-pressed","true"); $("modeFirst").setAttribute("aria-pressed","false"); run(); });
+  $("tabKept").addEventListener("click", function(){ state.tab = "kept"; render(); });
+  $("tabCut").addEventListener("click", function(){ state.tab = "cut"; render(); });
+
+  load(SAMPLE_HEADER, SAMPLE_ROWS, "", "Sheet1", true);
+})();
+</script>
+
+</body>
+</html>
